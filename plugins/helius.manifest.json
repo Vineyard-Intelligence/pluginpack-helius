@@ -1,0 +1,327 @@
+{
+  "identifier": "run.vineyard.pluginpacks.helius",
+  "content_type": "vineyard:pluginpack",
+  "name": "Helius",
+  "version": "1.0.0",
+  "summary": "Solana through Helius: an address's SOL and SPL token transfers, token accounts included, the wallet that first funded it, and on paid plans Helius's identity labels. Needs a Helius API key; the free plan covers history and first funder.",
+  "description": "For following funds on Solana: which wallets an address paid and was paid by in SOL and SPL tokens, including transfers into its token accounts, which a plain Solana RPC history leaves out; who sent it its first SOL; and what Helius calls a labelled wallet (an exchange, a bridge, a known scammer).\n\n**Needs:** a Helius API key (https://dashboard.helius.dev). The free plan (1 million credits a month) covers history and first funder; identity labels and funded-by need a paid plan, Developer ($49 a month) or above. History costs about 10 credits per 100 transactions, funded-by and identity 100 per address.\n\n**Who sees it:** Helius receives every address looked up, with your key, which Helius RPC takes only in the URL's query string.\n\n**Read results with care:**\n\n- Token transfers before December 2022 are not found through token accounts.\n- SOL a program moves without a transfer instruction, and the rent a closed account returns, are not counted; nor is SOL a wallet wraps into its own wSOL account.\n- Without funded-by, the first funder is whoever sent SOL when the balance first rose from zero (funded-by's own definition); a wallet first credited by a program gets none.\n- Labels are Helius's own and ungraded.\n\n**Terms** (https://www.helius.dev/terms, updated 2026-09-28): a lawful business purpose, not personal or household use (§3.2(xi)); keys kept confidential (§6.1). No rule on storing results.\n\n**Source:** https://github.com/Vineyard-Intelligence/pluginpack-helius (Apache-2.0)",
+  "author": {
+    "name": "VINEYARD",
+    "url": "https://vineyard.run"
+  },
+  "license": "Apache-2.0",
+  "icon": "sun",
+  "platforms": {
+    "primary": "web",
+    "web": {
+      "runtime": "sandbox-js",
+      "entry": "dist/pack.mjs"
+    },
+    "desktop": {
+      "runtime": "sandbox-js",
+      "entry": "dist/pack.mjs"
+    }
+  },
+  "plugins": [
+    {
+      "identifier": "run.vineyard.plugins.helius_address_history",
+      "content_type": "vineyard:plugin",
+      "name": "Solana Address History",
+      "version": "1.0.0",
+      "description": "Reads each selected Crypto Address on network solana from Helius getTransactionsForAddress, newest first, successful transactions only, including the SPL token transfers that arrive in the wallet's token accounts, which a plain Solana RPC leaves out. Links the address 'sent to' and from each wallet on the other side of a SOL or SPL token transfer: summary_helius (per asset, 'native' for SOL or the token mint: count, total, first, last; with window_from, window_to and complete), and the latest 20 transfers in recent on a link it creates (a link already in the project keeps its own recent list). SOL wrapped into the address's own wSOL account is not a payment. Writes balance (SOL, from getBalance), last_seen, history_examined, history_complete, and first_seen when the whole history was read. Token transfers before December 2022 are not found through token accounts. Up to max_transactions (default 300) per address and max_counterparties (default 50) links. Needs a Helius API key; the free plan works.",
+      "icon": "history",
+      "platforms": {
+        "primary": "web",
+        "web": {
+          "runtime": "sandbox-js",
+          "entry": "dist/pack.mjs"
+        },
+        "desktop": {
+          "runtime": "sandbox-js",
+          "entry": "dist/pack.mjs"
+        }
+      },
+      "params": {
+        "type": "object",
+        "properties": {
+          "max_transactions": {
+            "type": "integer",
+            "title": "Most transactions per address",
+            "default": 300,
+            "minimum": 100,
+            "maximum": 5000,
+            "description": "Read newest first, 100 per request (10 Helius credits each). An address with more is marked history_complete: false."
+          },
+          "max_counterparties": {
+            "type": "integer",
+            "title": "Most counterparties per address",
+            "default": 50,
+            "minimum": 1,
+            "maximum": 500,
+            "description": "The busiest pairs are linked; the rest are counted in the summary."
+          },
+          "token_accounts": {
+            "type": "boolean",
+            "title": "Include token accounts",
+            "default": true,
+            "description": "Also read transactions that change the balance of a token account the address owns (Helius's balanceChanged filter). Off reads only transactions that name the address itself."
+          }
+        }
+      },
+      "io": {
+        "consumes": [
+          {
+            "typepack": "run.vineyard.typepacks.cryptocurrency",
+            "category": "cryptocurrency",
+            "name": "crypto_address"
+          }
+        ],
+        "produces": [
+          {
+            "typepack": "run.vineyard.typepacks.cryptocurrency",
+            "category": "cryptocurrency",
+            "name": "crypto_address"
+          }
+        ]
+      },
+      "scopes": {
+        "graph": [
+          "node:read",
+          "node:create",
+          "node:update",
+          "edge:read",
+          "edge:create"
+        ],
+        "network": [
+          {
+            "endpoint": "https://mainnet.helius-rpc.com/",
+            "methods": [
+              "POST"
+            ],
+            "purpose": "Helius RPC: getTransactionsForAddress and getBalance. The API key goes in the api-key query parameter, the only way this RPC takes it."
+          },
+          {
+            "endpoint": "https://api.helius.xyz/v1/wallet/",
+            "methods": [
+              "GET"
+            ],
+            "purpose": "Helius Wallet API: funded-by and identity, which need a paid Helius plan. The API key goes in the X-Api-Key header."
+          }
+        ],
+        "config": [
+          {
+            "key": "api_key",
+            "label": "Helius API key",
+            "type": "string",
+            "secret": true,
+            "optional": false
+          }
+        ]
+      },
+      "lifecycle": {
+        "persistence": "opt-in",
+        "controls": [
+          "progress",
+          "cancel"
+        ],
+        "progress": "determinate"
+      }
+    },
+    {
+      "identifier": "run.vineyard.plugins.helius_first_funder",
+      "content_type": "vineyard:plugin",
+      "name": "Solana First Funder",
+      "version": "1.0.0",
+      "description": "Finds who sent each selected Crypto Address on network solana its first SOL. With a paid Helius plan it asks the Wallet API's funded-by, which also names a known funder (an exchange, say). On the free plan, which funded-by refuses with 403, and for an address funded-by has no record of, it reads the address's history from the start (getTransactionsForAddress, oldest first) to the transaction where its balance first rose from zero and takes the SOL transfer to it there, the definition funded-by uses. Writes first_funder, first_funding_tx and activated_at on the address, makes the funder a Crypto Address (with Helius's name for it as public_label when it has none), and adds first_funding (tx_hash, time, amount in SOL, source) to the funder's 'sent to' link to the address, creating the link if the pair has none. An address first credited by a program rather than a transfer, or not funded within its first max_scan transactions (default 100), is reported with no funder named. Needs a Helius API key.",
+      "icon": "hand-coins",
+      "platforms": {
+        "primary": "web",
+        "web": {
+          "runtime": "sandbox-js",
+          "entry": "dist/pack.mjs"
+        },
+        "desktop": {
+          "runtime": "sandbox-js",
+          "entry": "dist/pack.mjs"
+        }
+      },
+      "params": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "title": "Method",
+            "enum": [
+              "auto",
+              "earliest_deposit"
+            ],
+            "default": "auto",
+            "description": "auto: funded-by (100 credits, paid plans), reading the history from the start when the plan refuses it or funded-by has no record of the address. earliest_deposit: never call funded-by."
+          },
+          "max_scan": {
+            "type": "integer",
+            "title": "Most transactions to scan",
+            "default": 100,
+            "minimum": 100,
+            "maximum": 1000,
+            "description": "When reading from the start: how far to look for the first SOL received, 100 per request (10 Helius credits each)."
+          }
+        }
+      },
+      "io": {
+        "consumes": [
+          {
+            "typepack": "run.vineyard.typepacks.cryptocurrency",
+            "category": "cryptocurrency",
+            "name": "crypto_address"
+          }
+        ],
+        "produces": [
+          {
+            "typepack": "run.vineyard.typepacks.cryptocurrency",
+            "category": "cryptocurrency",
+            "name": "crypto_address"
+          }
+        ]
+      },
+      "scopes": {
+        "graph": [
+          "node:read",
+          "node:create",
+          "node:update",
+          "edge:read",
+          "edge:create"
+        ],
+        "network": [
+          {
+            "endpoint": "https://mainnet.helius-rpc.com/",
+            "methods": [
+              "POST"
+            ],
+            "purpose": "Helius RPC: getTransactionsForAddress and getBalance. The API key goes in the api-key query parameter, the only way this RPC takes it."
+          },
+          {
+            "endpoint": "https://api.helius.xyz/v1/wallet/",
+            "methods": [
+              "GET"
+            ],
+            "purpose": "Helius Wallet API: funded-by and identity, which need a paid Helius plan. The API key goes in the X-Api-Key header."
+          }
+        ],
+        "config": [
+          {
+            "key": "api_key",
+            "label": "Helius API key",
+            "type": "string",
+            "secret": true,
+            "optional": false
+          }
+        ]
+      },
+      "lifecycle": {
+        "persistence": "opt-in",
+        "controls": [
+          "progress",
+          "cancel"
+        ],
+        "progress": "determinate"
+      }
+    },
+    {
+      "identifier": "run.vineyard.plugins.helius_wallet_identity",
+      "content_type": "vineyard:plugin",
+      "name": "Solana Wallet Identity",
+      "version": "1.0.0",
+      "description": "Asks the Helius Wallet API (identity) who each selected Crypto Address on network solana belongs to, from the labels behind Helius's Orb explorer. Writes Helius's name as public_label (label_source Helius) when the address has no label from another source, else as helius_label, plus helius_category (e.g. Centralized Exchange, DeFi, Scammer), helius_type, helius_tags and helius_domains (its .sol and other on-chain domains). When the category names who holds the address it is linked 'attributed to' that owner, with attribution_helius (label, label_kind public_tag, category, as_of) on the link: a Centralized Exchange to its Exchange ('Binance 1' to Binance), a bridge, DeFi protocol or casino to a Crypto Service, a market maker or trading firm to an Organization. Other categories (Scammer, Hacker, Key Opinion Leader, …) stay labels. Needs a paid Helius plan (Developer or above); the free plan's key gets 403.",
+      "icon": "tag",
+      "platforms": {
+        "primary": "web",
+        "web": {
+          "runtime": "sandbox-js",
+          "entry": "dist/pack.mjs"
+        },
+        "desktop": {
+          "runtime": "sandbox-js",
+          "entry": "dist/pack.mjs"
+        }
+      },
+      "params": {
+        "type": "object",
+        "properties": {}
+      },
+      "io": {
+        "consumes": [
+          {
+            "typepack": "run.vineyard.typepacks.cryptocurrency",
+            "category": "cryptocurrency",
+            "name": "crypto_address"
+          }
+        ],
+        "produces": [
+          {
+            "typepack": "run.vineyard.typepacks.cryptocurrency",
+            "category": "cryptocurrency",
+            "name": "crypto_address"
+          },
+          {
+            "typepack": "run.vineyard.typepacks.cryptocurrency",
+            "category": "cryptocurrency",
+            "name": "crypto_service"
+          },
+          {
+            "typepack": "run.vineyard.typepacks.financial",
+            "category": "financial",
+            "name": "exchange"
+          },
+          {
+            "typepack": "run.vineyard.typepacks.identity",
+            "category": "identity",
+            "name": "organization"
+          }
+        ]
+      },
+      "scopes": {
+        "graph": [
+          "node:read",
+          "node:create",
+          "node:update",
+          "edge:read",
+          "edge:create"
+        ],
+        "network": [
+          {
+            "endpoint": "https://mainnet.helius-rpc.com/",
+            "methods": [
+              "POST"
+            ],
+            "purpose": "Helius RPC: getTransactionsForAddress and getBalance. The API key goes in the api-key query parameter, the only way this RPC takes it."
+          },
+          {
+            "endpoint": "https://api.helius.xyz/v1/wallet/",
+            "methods": [
+              "GET"
+            ],
+            "purpose": "Helius Wallet API: funded-by and identity, which need a paid Helius plan. The API key goes in the X-Api-Key header."
+          }
+        ],
+        "config": [
+          {
+            "key": "api_key",
+            "label": "Helius API key",
+            "type": "string",
+            "secret": true,
+            "optional": false
+          }
+        ]
+      },
+      "lifecycle": {
+        "persistence": "opt-in",
+        "controls": [
+          "progress",
+          "cancel"
+        ],
+        "progress": "determinate"
+      }
+    }
+  ]
+}
